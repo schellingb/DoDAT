@@ -187,7 +187,7 @@ struct SHA1_CTX
 #define ZIP_WRITE_LB16(b,v) { ZIP_WRITE_LE16(b,v) ZIP_WRITE_BE16((b+2),v) }
 #define ZIP_WRITE_LE32(b,v) { (b)[0] = (Bit8u)((Bit32u)(v)); (b)[1] = (Bit8u)(((Bit32u)(v) >> 8)); (b)[2] = (Bit8u)(((Bit32u)(v) >> 16)); (b)[3] = (Bit8u)((Bit32u)(v) >> 24); }
 #define ZIP_WRITE_BE32(b,v) { (b)[0] = (Bit8u)((Bit32u)(v) >> 24); (b)[1] = (Bit8u)(((Bit32u)(v) >> 16)); (b)[2] = (Bit8u)(((Bit32u)(v) >> 8)); (b)[3] = (Bit8u)((Bit32u)(v)); }
-#define ZIP_WRITE_BE64(b,v) { (b)[0] = (Bit8u)((Bit64u)(v) >> 56); (b)[1] = (Bit8u)((Bit64u)(v) >> 48); (b)[2] = (Bit8u)((Bit64u)(v) >> 40); (b)[3] = (Bit8u)((Bit64u)(v) << 32); (b)[4] = (Bit8u)((Bit64u)(v) >> 24); (b)[5] = (Bit8u)((Bit64u)(v) >> 16); (b)[6] = (Bit8u)((Bit64u)(v) >> 8); (b)[7] = (Bit8u)(Bit64u)(v); }
+#define ZIP_WRITE_BE64(b,v) { (b)[0] = (Bit8u)((Bit64u)(v) >> 56); (b)[1] = (Bit8u)((Bit64u)(v) >> 48); (b)[2] = (Bit8u)((Bit64u)(v) >> 40); (b)[3] = (Bit8u)((Bit64u)(v) >> 32); (b)[4] = (Bit8u)((Bit64u)(v) >> 24); (b)[5] = (Bit8u)((Bit64u)(v) >> 16); (b)[6] = (Bit8u)((Bit64u)(v) >> 8); (b)[7] = (Bit8u)(Bit64u)(v); }
 #define ZIP_WRITE_LB32(b,v) { ZIP_WRITE_LE32(b,v) ZIP_WRITE_BE32((b+4),v) }
 #define ZIP_PACKDATE(year,mon,day) (Bit16u)((((year)-1980)&0x7f)<<9 | ((mon)&0x3f) << 5 | ((day)&0x1f))
 #define ZIP_PACKTIME(hour,min,sec) (Bit16u)(((hour)&0x1f)<<11 | ((min)&0x3f) << 5 | (((sec)/2)&0x1f))
@@ -523,7 +523,7 @@ struct SFileMemory : SFile
 	virtual Bit64u Seek(Bit64s ofs, int origin = SEEK_SET) { switch (origin) { case SEEK_SET: default: pos = (Bit64u)ofs; break; case SEEK_CUR: pos += ofs; break; case SEEK_END: pos = size + ofs; break; } return (pos > size ? (pos = size) : pos); }
 
 	// Generate a file from Base64
-	SFileMemory(const char* base64, size_t len) : SFileMemory(len)
+	SFileMemory(const char* base64, size_t len) : SFileMemory((len + 3) / 4 * 3)
 	{
 		path.assign("<EMBEDDED>"); Bit8u* trg = buf;
 		static const Bit8u base64dec[256] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62,0,0,0,63,52,53,54,55,56,57,58,59,60,61,0,0,0,0,0,0,0,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,0,0,0,0,0,0,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,0};
@@ -696,8 +696,8 @@ struct SFileZip : SFileMemory
 		ZipReader(SFile& _archive) : archive(_archive), refs(0) { }
 		~ZipReader() { archive.Close(); }
 		SFile& archive; Bit32u refs;
-		void AddRef() { refs++; }
-		void DelRef() 
+		inline void AddRef() { refs++; }
+		inline void DelRef() 
 		{
 			ZIP_ASSERT(refs); 
 			if (!--refs)
@@ -849,7 +849,7 @@ struct SFileZip : SFileMemory
 
 		ZipReader* reader = new ZipReader(fi); // pass already opened file
 
-		// Now create an index into the central directory file records, do some basic sanity checking on each record, and check for zip64 entries (which are not yet supported).
+		// Now create an index into the central directory file records, do some basic sanity checking on each record
 		p = cdir_start;
 		size_t old_files_count = files.size();
 		for (Bit32u i = 0, total_header_size; i < total_files && p >= cdir_start && p < cdir_end && ZIP_READ_LE32(p) == ZIP_CENTRAL_DIR_HEADER_SIG; i++, p += total_header_size)
@@ -2591,8 +2591,8 @@ struct SFileFat : SFile
 				switch (fattype)
 				{
 					case FAT12: clustNum = VarRead(*(Bit16u*)&fatChainBuffer[chainOfs]); clustNum = (isOddCluster ? (clustNum >> 4) : (clustNum & 0xfff)); if (clustNum >= 0xff8) return 0; break;
-					case FAT16: clustNum = VarRead(*(Bit16u*)&fatChainBuffer[chainOfs]); if (clustNum >= 0xfff8)     return 0; break;
-					case FAT32: clustNum = VarRead(*(Bit32u*)&fatChainBuffer[chainOfs]); if (clustNum >= 0xfffffff8) return 0; break;
+					case FAT16: clustNum = VarRead(*(Bit16u*)&fatChainBuffer[chainOfs]); if (clustNum >= 0xfff8) return 0; break;
+					case FAT32: clustNum = VarRead(*(Bit32u*)&fatChainBuffer[chainOfs]) & 0x0fffffff; if (clustNum >= 0x0ffffff8) return 0; break; // upper 4 bits are reserved
 				}
 			}
 			return ((clustNum - 2) * partition_cluster_sectors) + firstDataSector + (logicalSector % partition_cluster_sectors);
@@ -2961,8 +2961,8 @@ static bool BuildRom(char* pGameInner, char* gameName, char* gameNameX, const st
 	// If needed, generate files not yet matched
 	for (r = 0, p = pGameInner; matches != needRoms && matches >= r && p && (x = XMLParse(p, pEnd)) != XML_END && x != XML_ELEM_END && (pNext = XMLLevel(pEnd, x, &textStart, &textEnd)) != NULL; p = pNext)
 	{
-		char *romName, *romNameX, *romSize, *romCrc, *romSha1, *romData, *romDataX;
-		if (!XMLMatchTag(p, pEnd, "rom", 3, "name", &romName, &romNameX, "size", &romSize, NULL, "crc", &romCrc, NULL, "sha1", &romSha1, NULL, "data", &romData, &romDataX, NULL)) continue;
+		char *romName, *romNameX, *romSize, *romCrc, *romSha1;
+		if (!XMLMatchTag(p, pEnd, "rom", 3, "name", &romName, &romNameX, "size", &romSize, NULL, "crc", &romCrc, NULL, "sha1", &romSha1, NULL, NULL)) continue;
 		if (gameFiles[r++] || x != XML_ELEM_START) continue; // make sure to increment r before continue, skip already matched and entries without inner elements in this step
 		Bit64u size = atoi64(romSize);
 		if ((!size && (romNameX[-1] == '/' || romNameX[-1] == '\\')) || size > (Bit64u)0xFFFFFFFF) continue; // directory or invalid size
